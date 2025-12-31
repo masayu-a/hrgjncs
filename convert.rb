@@ -64,6 +64,13 @@ SMALL_HIRA_OR_ETC = /[ぁぃぅぇぉ・を]/
 FULLWIDTH_AZ_ONLY = /\A[Ａ-Ｚ]+\z/
 KATAKANA_ONLY     = /\A[ァ-ヶー]+\z/
 
+# 濁音・半濁音 ゃゅょっーは1回しか出ない（2/3/4文字すべてに適用）
+SPECIAL_ONCE = /[がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゔゃゅょっー]/
+
+def special_ok?(str)
+  str.scan(SPECIAL_ONCE).length <= 1
+end
+
 def normalize_reading!(tokens)
   headword = tokens[COL[:headword]]
   reading  = tokens[COL[:reading]]
@@ -87,6 +94,7 @@ def skip_row?(tokens)
   headword = tokens[COL[:headword]]
 
   return true if reading.length > 3
+  return true unless special_ok?(reading)           # ★追加：濁音・半濁音 ゃゅょっーは1回まで
   return true if reading.match?(SMALL_HIRA_OR_ETC)
   return true unless class_no.start_with?("1")      # 名詞のみ 全ての単語を対象するときは、ここをコメントアウト
   return true if heading.include?("−")
@@ -124,7 +132,11 @@ CSV.foreach("bunruidb-fam.csv", headers: false) do |row|
 
   reading = tokens[COL[:reading]]
   heading = tokens[COL[:heading]]
-  key     = sorted_chars(reading)
+
+  # normalize_reading! で reading が変わった場合もあるのでここでも再チェック
+  next unless special_ok?(reading)                # ★追加：保険
+
+  key = sorted_chars(reading)
 
   # ★ 指定した2文字集合・3文字集合を除外
   next if excluded_key?(reading.length, key)
@@ -149,8 +161,21 @@ def purge_keys!(ngramH, unigramH, bad_keys)
   unigramH.delete_if { |_ch, arr| arr.empty? }
 end
 
+# 濁音・半濁音 ゃゅょっー 制約でも、候補（集合キー）から落とす
+def purge_by_special_rule!(ngramH, unigramH)
+  bad = ngramH.keys.select { |k| !special_ok?(k) }
+  bad.each do |k|
+    ngramH.delete(k)
+    unigramH.each_value { |arr| arr.delete(k) }
+  end
+  unigramH.delete_if { |_ch, arr| arr.empty? }
+end
+
 purge_keys!(bigramH, unigram2H, EXCLUDE_BIGRAM_KEYS)
 purge_keys!(trigramH, unigram3H, EXCLUDE_TRIGRAM_KEYS)
+
+purge_by_special_rule!(bigramH, unigram2H)        # ★追加
+purge_by_special_rule!(trigramH, unigram3H)       # ★追加
 
 # =======================
 # Writers
@@ -165,11 +190,99 @@ File.open("3gram.txt", "w") do |fh|
   trigramH.sort.each { |k, v| fh.puts "#{k}\t#{uniq_join(v)}" }
 end
 
+# =======================
+# stats.txt (2gram/3gram での文字頻度・確率 + 3gram -logP)
+#   - 「重み付き」は使わない
+#   - -logP は 3gram の出現確率（非重み付き）から計算
+# =======================
+def fmt_prob(num, den)
+  return "0" if den == 0
+  format("%.12f", num.to_f / den.to_f)
+end
+
+def prob(num, den)
+  return 0.0 if den == 0
+  num.to_f / den.to_f
+end
+
+def safe_nlogp(p)
+  return nil if p <= 0.0
+  -Math.log(p) # 自然対数
+end
+
+# --- 2gram: 文字の出現回数（集合キー上） ---
+bi_char_freq  = Hash.new(0)  # 文字 => 出現回数（集合キー上）
+bi_total_chars = 0
+
+bigramH.each do |k, _v|
+  k.each_char do |ch|
+    bi_char_freq[ch] += 1
+    bi_total_chars += 1
+  end
+end
+
+# --- 3gram: 同様 ---
+tri_char_freq  = Hash.new(0)
+tri_total_chars = 0
+
+trigramH.each do |k, _v|
+  k.each_char do |ch|
+    tri_char_freq[ch] += 1
+    tri_total_chars += 1
+  end
+end
+
+all_chars = (bi_char_freq.keys + tri_char_freq.keys).uniq.sort
+
+# ★nobetan で使う：文字ごとの -log( 3gram出現確率 )
+char_nlogp = {} # 文字 => -logP（3gram）
+
+File.open("stats.txt", "w") do |fh|
+  fh.puts [
+    "１文字",
+    "2gram出現回数",
+    "2gram出現確率",
+    "3gram出現回数",
+    "3gram出現確率",
+    "3gram -logP"
+  ].join("\t")
+
+  rows = all_chars.map do |ch|
+    bi_f = bi_char_freq[ch]
+    tr_f = tri_char_freq[ch]
+
+    p3 = prob(tr_f, tri_total_chars)
+    nlp = safe_nlogp(p3)
+    char_nlogp[ch] = nlp
+
+    line = [
+      ch,
+      bi_f,
+      fmt_prob(bi_f, bi_total_chars),
+      tr_f,
+      fmt_prob(tr_f, tri_total_chars),
+      (nlp.nil? ? "NA" : format("%.12f", nlp))
+    ].join("\t")
+
+    # 並び順：3gram出現回数 多い→少ない（同点なら文字）
+    [-tr_f, ch, line]
+  end
+
+  rows.sort.each { |(_, _, line)| fh.puts line }
+
+  STDERR.puts "stats: 2gram総文字数=#{bi_total_chars}, 3gram総文字数=#{tri_total_chars}"
+end
+
 File.open("1_2chars.txt", "w") do |fh|
   fh.puts "１文字\t待ち候補文字の数\t待ち候補文字\t成立する２文字集合\t成立する２文字単語"
 
-  unigram2H.sort.each do |char, keys|
+  rows = []
+
+  unigram2H.each do |char, keys|
     uniq_keys = keys.sort.uniq
+
+    # ★候補（成立する２文字集合）も制約で再フィルタ（保険）
+    uniq_keys.select! { |k| special_ok?(k) }
 
     wait_chars   = []
     bigram_words = []
@@ -180,6 +293,18 @@ File.open("1_2chars.txt", "w") do |fh|
       bigram_words << uniq_join(bigramH[k])
     end
 
+    # ★待ち候補文字も「(char + other) が1回まで」を満たすものだけ残す
+    filtered = []
+    wait_chars.each_with_index do |other, i|
+      if special_ok?(char + other)
+        filtered << [other, bigram_words[i], uniq_keys[i]]
+      end
+    end
+
+    wait_chars   = filtered.map { |x| x[0] }
+    bigram_words = filtered.map { |x| x[1] }
+    uniq_keys    = filtered.map { |x| x[2] }
+
     entry = {
       base: char,
       count: uniq_keys.length,
@@ -189,41 +314,70 @@ File.open("1_2chars.txt", "w") do |fh|
     }
     bicount[char] = entry
 
-    fh.puts [
+    line = [
       char,
       entry[:count],
       entry[:candidates].join(" "),
       entry[:bigram_keys].join(" "),
       entry[:bigram_words].join(" ")
     ].join("\t")
+
+    # ★待ち候補文字数（entry[:count]）が少ない順に並べ替え
+    rows << [entry[:count], char, line]
+  end
+
+  rows.sort_by { |count, char, _line| [count, char] }.each do |(_, _, line)|
+    fh.puts line
   end
 end
 
 File.open("1_3chars.txt", "w") do |fh|
   fh.puts "１文字\t成立する３文字単語数\t成立する３文字集合\t成立する３文字単語"
 
-  unigram3H.sort.each do |char, keys|
-    uniq_keys = keys.sort.uniq
-    trigram_words = uniq_keys.map { |k| uniq_join(trigramH[k]) }
+  rows = []
 
-    fh.puts [
+  unigram3H.each do |char, keys|
+    uniq_keys = keys.sort.uniq
+
+    # ★候補（成立する３文字集合）も制約で再フィルタ（保険）
+    uniq_keys.select! { |k| special_ok?(k) }
+
+    trigram_words = uniq_keys.map { |k| uniq_join(trigramH[k]) }
+    count = uniq_keys.length
+
+    line = [
       char,
-      uniq_keys.length,
+      count,
       uniq_keys.join(" "),
       trigram_words.join(" ")
     ].join("\t")
+
+    # ★（ここでは成立する３文字単語数＝count）が少ない順に並べ替え
+    rows << [count, char, line]
+  end
+
+  rows.sort_by { |count, char, _line| [count, char] }.each do |(_, _, line)|
+    fh.puts line
   end
 end
 
 File.open("2_3chars.txt", "w") do |fh|
   fh.puts "成立した２文字集合\t成立した２文字単語\t待ち候補文字数\t待ち候補文字\t成立する３文字集合\t成立する３文字単語"
 
-  bigramH.sort.each do |k, words2|
+  rows = []
+
+  bigramH.each do |k, words2|
     targets = []
     target_words = []
 
-    trigramH.sort.each do |k3, words3|
+    trigramH.each do |k3, words3|
+      next unless special_ok?(k3)                 # ★候補（成立する３文字集合）から除去（保険）
+
       if k3.include?(k[0]) && k3.include?(k[1])
+        # ★念のため「k + wait_char」で制約確認（実質はk3で確認済み）
+        rest = k3.sub(k[0], "").sub(k[1], "")
+        next unless special_ok?(k + rest)
+
         targets << k3
         target_words << uniq_join(words3)
       end
@@ -236,21 +390,35 @@ File.open("2_3chars.txt", "w") do |fh|
       rest.sub(k[1], "")
     end
 
-    fh.puts [
+    # ★待ち候補文字も制約で再フィルタ（保険）
+    wait_chars.select! { |c| special_ok?(k + c) }
+
+    wait_count = wait_chars.length
+
+    line = [
       k,
       uniq_join(words2),
-      wait_chars.length,
+      wait_count,
       wait_chars.join(" "),
       targets.join(" "),
       target_words.join(" ")
     ].join("\t")
+
+    # ★待ち候補文字数（wait_count）が少ない順に並べ替え
+    rows << [wait_count, k, line]
+  end
+
+  rows.sort_by { |wait_count, key2, _line| [wait_count, key2] }.each do |(_, _, line)|
+    fh.puts line
   end
 end
 
 # =======================
 # nobetan (4文字集合の生成)
+#   3gram -logP の和（=確率の積の -log）を出す
+#   2行ごとに -logP 和の降順（確率が低い順）で並べる
 # =======================
-def bicount_fields(entry, delete_chars: [])
+def bicount_fields(entry, delete_chars: [], forbid_special_if_base_special: true)
   return "" if entry.nil?
 
   candidates = entry[:candidates].dup
@@ -267,8 +435,21 @@ def bicount_fields(entry, delete_chars: [])
     end
   end
 
+  # ★候補から取り除く：base+candidate が制約違反になるものは除去
+  base = entry[:base]
+  filtered = []
+  candidates.each_with_index do |c, i|
+    next unless special_ok?(base + c)
+    filtered << [c, keys[i], words[i]]
+  end
+
+  candidates = filtered.map { |x| x[0] }
+  keys       = filtered.map { |x| x[1] }
+  words      = filtered.map { |x| x[2] }
+  count      = candidates.length
+
   [
-    entry[:base],
+    base,
     count,
     candidates.join(" "),
     keys.join(" "),
@@ -279,9 +460,10 @@ end
 tricount = 0
 
 File.open("nobetan.txt", "w") do |fh|
-  fh.puts "４文字集合\t成立した３文字集合\t成立した３文字単語\t残り１文字\t残り１文字に対する待ち候補文字数\t残り１文字に対する待ち候補文字\t成立する２文字集合\t成立する２文字単語"
+  fh.puts "４文字集合\t成立した３文字集合\t成立した３文字単語\t残り１文字\t残り１文字に対する待ち候補文字数\t残り１文字に対する待ち候補文字\t成立する２文字集合\t成立する２文字単語\t3gram -logP和(4文字)"
 
   trigram_keys = trigramH.keys.sort
+  pair_rows = [] # [nlog_sum, chars4, line1, line2]
 
   trigram_keys.each do |k|
     trigram_keys.each do |k2|
@@ -307,31 +489,59 @@ File.open("nobetan.txt", "w") do |fh|
 
       chars4 = sorted_chars(knew + match + k2new)
 
+      # ★4文字集合にも制約（濁音・半濁音 ゃゅょっーは1回まで）
+      next unless special_ok?(chars4)
+
+      # ★4文字ぶんの「3gram -logP」和（= P の積の -log）
+      nlog_sum = 0.0
+      missing = false
+      chars4.each_char do |ch|
+        v = char_nlogp[ch]
+        if v.nil?
+          missing = true
+          break
+        end
+        nlog_sum += v
+      end
+      next if missing
+      nlog_sum_str = format("%.12f", nlog_sum)
+
       counts = chars4.each_char.tally
       unique_len = counts.length
 
       words_k  = uniq_join(trigramH[k])
       words_k2 = uniq_join(trigramH[k2])
 
+      line1 = nil
+      line2 = nil
+
       if unique_len == 4
-        fh.puts "#{chars4}\t#{k}\t#{words_k}\t#{bicount_fields(bicount[k2new])}"
-        fh.puts "#{chars4}\t#{k2}\t#{words_k2}\t#{bicount_fields(bicount[knew])}"
+        line1 = "#{chars4}\t#{k}\t#{words_k}\t#{bicount_fields(bicount[k2new])}\t#{nlog_sum_str}"
+        line2 = "#{chars4}\t#{k2}\t#{words_k2}\t#{bicount_fields(bicount[knew])}\t#{nlog_sum_str}"
 
       elsif unique_len == 3
         tricount += 1
         delete_char = counts.find { |_c, n| n == 2 }&.first
 
-        fh.puts "#{chars4}\t#{k}\t#{words_k}\t#{bicount_fields(bicount[k2new], delete_chars: [delete_char].compact)}"
-        fh.puts "#{chars4}\t#{k2}\t#{words_k2}\t#{bicount_fields(bicount[knew], delete_chars: [delete_char].compact)}"
+        line1 = "#{chars4}\t#{k}\t#{words_k}\t#{bicount_fields(bicount[k2new], delete_chars: [delete_char].compact)}\t#{nlog_sum_str}"
+        line2 = "#{chars4}\t#{k2}\t#{words_k2}\t#{bicount_fields(bicount[knew], delete_chars: [delete_char].compact)}\t#{nlog_sum_str}"
 
       else
         # 2個重複（例: ううふふ / かかくく など）を想定
         delete_chars = counts.select { |_c, n| n == 2 }.keys
 
-        fh.puts "#{chars4}\t#{k}\t#{words_k}\t#{bicount_fields(bicount[k2new], delete_chars: delete_chars)}"
-        fh.puts "#{chars4}\t#{k2}\t#{words_k2}\t#{bicount_fields(bicount[knew], delete_chars: delete_chars)}"
+        line1 = "#{chars4}\t#{k}\t#{words_k}\t#{bicount_fields(bicount[k2new], delete_chars: delete_chars)}\t#{nlog_sum_str}"
+        line2 = "#{chars4}\t#{k2}\t#{words_k2}\t#{bicount_fields(bicount[knew], delete_chars: delete_chars)}\t#{nlog_sum_str}"
       end
+
+      pair_rows << [nlog_sum, chars4, line1, line2]
     end
+  end
+
+  # ★確率が低い順 = -logP和が大きい順（2行セットで並べる）
+  pair_rows.sort_by { |nlog_sum, chars4, _l1, _l2| [-nlog_sum, chars4] }.each do |(_, _, l1, l2)|
+    fh.puts l1
+    fh.puts l2
   end
 end
 
