@@ -1,4 +1,4 @@
-# hrgjncs (version 1.0) (2026/01/01)
+# hrgjncs (version 1.1) (2026/01/26)
 
 ## Description
 
@@ -33,6 +33,16 @@
 
 - 1列目 ３文字集合（読み3文字をソートしたキー）
 - 2列目 可能な３文字単語（見出し、`:` 区切り）
+
+### 4gram.txt ４文字単語
+
+- 1列目 ４文字集合（読み5文字をソートしたキー）
+- 2列目 可能な４文字単語（見出し、`:` 区切り）
+
+### 5gram.txt ５文字単語
+
+- 1列目 ５文字集合（読み5文字をソートしたキー）
+- 2列目 可能な５文字単語（見出し、`:` 区切り）
 
 ### 1_2chars.txt あと１文字で２文字単語になる１文字
 
@@ -99,6 +109,11 @@
 `nobetan.txt` の -logP は、この `stats.txt` の **3gram出現確率**から計算した `-logP` を  
 4文字分足し合わせた値として扱う。
 
+## 変更履歴
+
+- Version 1.1 (2026/01/25) ひらがなテキサスホールデム対応のために4gram.txt, 5gram.txt を追加
+- Version 1.0 (2026/01/01) 最初の公開
+
 ## Author
 
 - 浅原正幸 (国立国語研究所)
@@ -125,4 +140,5 @@ masayu-a@ninjal.ac.jp
 
 ## Spreadsheets
 
+- ひらがなテキサスホールデムの有用性などを議論
 https://docs.google.com/spreadsheets/d/1Q5vElHTmU7gHQA3_iYcH2Ky4_SlNQPuT1wRxuJyWMiE/edit?usp=sharing
