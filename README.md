@@ -1,4 +1,4 @@
-# hrgjncs (version 1.1) (2026/01/26)
+# hrgjncs (version 1.2) (2026/02/07)
 
 ## Description
 
@@ -24,27 +24,29 @@
 - **特定の2文字集合・3文字集合を除外**（コードの `EXCLUDE_BIGRAM_RAW`, `EXCLUDE_TRIGRAM_RAW`）
 - `1_2chars.txt`, `1_3chars.txt`, `2_3chars.txt` は **待ち候補文字数が少ない順**に出力される
 
-### 2gram.txt ２文字単語
+### tai (名詞のみ)/all (全品詞) フォルダ
+
+#### 2gram.txt ２文字単語
 
 - 1列目 ２文字集合（読み2文字をソートしたキー）
 - 2列目 可能な２文字単語（見出し、`:` 区切り）
 
-### 3gram.txt ３文字単語
+#### 3gram.txt ３文字単語
 
 - 1列目 ３文字集合（読み3文字をソートしたキー）
 - 2列目 可能な３文字単語（見出し、`:` 区切り）
 
-### 4gram.txt ４文字単語
+#### 4gram.txt ４文字単語
 
-- 1列目 ４文字集合（読み5文字をソートしたキー）
+- 1列目 ４文字集合（読み4文字をソートしたキー）
 - 2列目 可能な４文字単語（見出し、`:` 区切り）
 
-### 5gram.txt ５文字単語
+#### 5gram.txt ５文字単語
 
 - 1列目 ５文字集合（読み5文字をソートしたキー）
 - 2列目 可能な５文字単語（見出し、`:` 区切り）
 
-### 1_2chars.txt あと１文字で２文字単語になる１文字
+#### 1_2chars.txt あと１文字で２文字単語になる１文字
 
 - 1列目 １文字
 - 2列目 待ち候補文字の数
@@ -54,7 +56,7 @@
 
 ※出力は「待ち候補文字の数」が少ない順
 
-### 1_3chars.txt あと２文字で３文字単語になる１文字
+#### 1_3chars.txt あと２文字で３文字単語になる１文字
 
 - 1列目 １文字
 - 2列目 成立する３文字単語数
@@ -63,7 +65,7 @@
 
 ※出力は「成立する３文字単語数」が少ない順
 
-### 2_3chars.txt あと１文字で３文字単語になる２文字単語
+#### 2_3chars.txt あと１文字で３文字単語になる２文字単語
 
 - 1列目 成立した２文字集合
 - 2列目 成立した２文字単語
@@ -74,7 +76,7 @@
 
 ※出力は「待ち候補文字の数」が少ない順
 
-### nobetan.txt ノベタン待ち可能な４文字集合（２文字共有３文字単語対）
+#### nobetan.txt ノベタン待ち可能な４文字集合（２文字共有３文字単語対）
 
 - 1列目 ４文字集合（２文字共有３文字単語対）
 - 2列目 成立した３文字集合
@@ -95,7 +97,7 @@
 ※ `nobetan.txt` は **2行を1組**（同一4文字集合に対する2通りの待ち）として扱い、  
 **その2行の「-logP 合計」の和が大きい順**（= 確率が低い順）に並べ替えて出力する。
 
-### stats.txt 文字の使用頻度・確率（2gram/3gram 由来、重み付けなし）
+#### stats.txt 文字の使用頻度・確率（2gram/3gram 由来、重み付けなし）
 
 各文字が `2gram.txt` / `3gram.txt` の集合キー内でどの程度使われるかを集計して出力する（重み付けなし）。
 
@@ -109,8 +111,27 @@
 `nobetan.txt` の -logP は、この `stats.txt` の **3gram出現確率**から計算した `-logP` を  
 4文字分足し合わせた値として扱う。
 
+### taipro (名詞のみ)/allpro (全品詞) フォルダ
+
+#### 2gram.txt ２文字単語
+
+- 1列目 ２文字集合（読み2文字を清音化してソートしたキー）
+- 2列目 可能な２文字単語（見出し、`:` 区切り）
+
+#### 3gram.txt ３文字単語
+
+- 1列目 ３文字集合（読み3文字を清音化してソートしたキー）
+- 2列目 可能な３文字単語（見出し、`:` 区切り）
+
+#### 4gram.txt ４文字単語
+
+- 1列目 ４文字集合（読み4文字を清音化してソートしたキー）
+- 2列目 可能な４文字単語（見出し、`:` 区切り）
+
+
 ## 変更履歴
 
+- Version 1.2 (2026/02/07) PRO 対応のために清音化に対応したテーブルを追加
 - Version 1.1 (2026/01/25) ひらがなテキサスホールデム対応のために4gram.txt, 5gram.txt を追加
 - Version 1.0 (2026/01/01) 最初の公開
 
@@ -120,11 +141,13 @@
 
 ## References
 
-Masayuki Asahara (2019) Word Familiarity Rate Estimation Using a Bayesian Linear Mixed Model,  
+- 浅原正幸 (2026) あと1文字で単語をなす文字集合について, NLP2026
+
+- Masayuki Asahara (2019) Word Familiarity Rate Estimation Using a Bayesian Linear Mixed Model,  
 Proceedings of the First Workshop on Aggregating and Analysing Crowdsourced Annotations for NLP, pages 6-14.  
 https://www.aclweb.org/anthology/D19-5902.pdf
 
-浅原正幸 (2020) Bayesian Linear Mixed Model による 単語親密度推定と位相情報付与, 『自然言語処理』, 27(1), pp.133-150, https://doi.org/10.5715/jnlp.27.133
+- 浅原正幸 (2020) Bayesian Linear Mixed Model による 単語親密度推定と位相情報付与, 『自然言語処理』, 27(1), pp.133-150, https://doi.org/10.5715/jnlp.27.133
 
 ## License
 
